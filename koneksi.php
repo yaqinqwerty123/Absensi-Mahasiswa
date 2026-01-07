@@ -3,15 +3,15 @@
 // ini_set('display_startup_errors', 1);
 // error_reporting(E_ALL);
 
-// $server   = "localhost";
-// $username = "umum";
-// $password = "RSmndb2020";
-// $database = "rs_pendidikan";
-
 $server   = "localhost";
-$username = "root";
-$password = "";
+$username = "umum";
+$password = "RSmndb2020";
 $database = "rs_pendidikan";
+
+// $server   = "localhost";
+// $username = "root";
+// $password = "";
+// $database = "rs_pendidikan";
 
 
 
