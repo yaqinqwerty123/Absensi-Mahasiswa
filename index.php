@@ -4,6 +4,27 @@ include "koneksi.php";
 
 date_default_timezone_set('Asia/Jakarta');
 
+// ===============================
+// KONFIGURASI LOKASI ABSENSI
+// ===============================
+$CENTER_LAT = -7.157197932656336;
+$CENTER_LNG = 113.49101646077567;
+$MAX_RADIUS = 30; // meter
+
+function hitungJarak($lat1, $lon1, $lat2, $lon2) {
+    $earthRadius = 6371000; // meter
+
+    $dLat = deg2rad($lat2 - $lat1);
+    $dLon = deg2rad($lon2 - $lon1);
+
+    $a = sin($dLat/2) * sin($dLat/2) +
+         cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
+         sin($dLon/2) * sin($dLon/2);
+
+    $c = 2 * atan2(sqrt($a), sqrt(1-$a));
+    return $earthRadius * $c;
+}
+
 $nowDatetime = date('Y-m-d H:i:s');
 $today       = date('Y-m-d');
 
@@ -28,6 +49,21 @@ if (isset($_POST['absen'])) {
     $pass  = md5(trim($_POST['password']));
     $shift = mysql_real_escape_string($_POST['shift']);
     $ket   = mysql_real_escape_string($_POST['jenis_absen']);
+
+
+    $lat = isset($_POST['latitude']) ? $_POST['latitude'] : '';
+    $lng = isset($_POST['longitude']) ? $_POST['longitude'] : '';
+
+    if ($lat == '' || $lng == '') {
+        $error = "Lokasi tidak terdeteksi, aktifkan GPS";
+    } else {
+        $jarak = hitungJarak($lat, $lng, $CENTER_LAT, $CENTER_LNG);
+
+        if ($jarak > $MAX_RADIUS) {
+            $error = "Anda tidak sedang berada di lokasi absensi";
+        }
+    }
+
 
     if ($nim == '' || $pass == '' || $shift == '' || $ket == '') {
         $error = "Semua field wajib diisi";
@@ -219,6 +255,8 @@ button:active {
     <div class="sub">SIAKAD</div>
 
 <form method="post">
+    <input type="hidden" name="latitude" id="latitude">
+    <input type="hidden" name="longitude" id="longitude">
 
     <label>NIM</label>
     <input type="text" name="nim" placeholder="Masukkan NIM" required>
@@ -243,6 +281,24 @@ button:active {
 </form>
 
 </div>
+<script>
+navigator.geolocation.getCurrentPosition(
+    function(pos) {
+        document.getElementById('latitude').value  = pos.coords.latitude;
+        document.getElementById('longitude').value = pos.coords.longitude;
+    },
+    function(err) {
+        Swal.fire({
+            icon: 'error',
+            text: 'GPS wajib diaktifkan untuk absen'
+        });
+    },
+    {
+        enableHighAccuracy: true,
+        timeout: 10000
+    }
+);
+</script>
 
 <?php if (isset($_POST['absen']) && $error !== '') { ?>
 <script>
