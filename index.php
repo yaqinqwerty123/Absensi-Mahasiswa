@@ -40,6 +40,7 @@ while ($s = mysql_fetch_assoc($qShift)) {
     $shiftOpt .= '<option value="'.$s['id'].'">'.$s['nama_shift'].'</option>';
 }
 
+
 // ===============================
 // PROSES LOGIN + ABSEN
 // ===============================
@@ -51,6 +52,9 @@ if (isset($_POST['absen'])) {
     $ket   = mysql_real_escape_string($_POST['jenis_absen']);
 
 
+    // ===============================
+    // VALIDASI LOKASI (WAJIB PALING AWAL)
+    // ===============================
     $lat = isset($_POST['latitude']) ? $_POST['latitude'] : '';
     $lng = isset($_POST['longitude']) ? $_POST['longitude'] : '';
 
@@ -58,13 +62,12 @@ if (isset($_POST['absen'])) {
         $error = "Lokasi tidak terdeteksi, aktifkan GPS";
     } else {
         $jarak = hitungJarak($lat, $lng, $CENTER_LAT, $CENTER_LNG);
-
         if ($jarak > $MAX_RADIUS) {
             $error = "Anda tidak sedang berada di lokasi absensi";
         }
     }
 
-
+   
     if ($nim == '' || $pass == '' || $shift == '' || $ket == '') {
         $error = "Semua field wajib diisi";
     } else {
@@ -282,23 +285,49 @@ button:active {
 
 </div>
 <script>
-navigator.geolocation.getCurrentPosition(
-    function(pos) {
-        document.getElementById('latitude').value  = pos.coords.latitude;
-        document.getElementById('longitude').value = pos.coords.longitude;
-    },
-    function(err) {
+const btn = document.querySelector('button[name="absen"]');
+
+btn.addEventListener('click', function(e) {
+    e.preventDefault(); // STOP submit dulu
+
+    if (!navigator.geolocation) {
         Swal.fire({
             icon: 'error',
-            text: 'GPS wajib diaktifkan untuk absen'
+            text: 'Browser tidak mendukung GPS'
         });
-    },
-    {
-        enableHighAccuracy: true,
-        timeout: 10000
+        return;
     }
-);
+
+    Swal.fire({
+        title: 'Mengambil lokasi...',
+        allowOutsideClick: false,
+        didOpen: () => {
+            Swal.showLoading();
+        }
+    });
+
+    navigator.geolocation.getCurrentPosition(
+        function(pos) {
+            document.getElementById('latitude').value  = pos.coords.latitude;
+            document.getElementById('longitude').value = pos.coords.longitude;
+
+            Swal.close();
+            btn.closest('form').submit(); // SUBMIT SETELAH GPS VALID
+        },
+        function(err) {
+            Swal.fire({
+                icon: 'error',
+                text: 'GPS wajib diaktifkan dan diizinkan'
+            });
+        },
+        {
+            enableHighAccuracy: true,
+            timeout: 15000
+        }
+    );
+});
 </script>
+
 
 <?php if (isset($_POST['absen']) && $error !== '') { ?>
 <script>
