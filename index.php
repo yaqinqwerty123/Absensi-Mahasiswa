@@ -289,9 +289,10 @@ button:active {
 const CENTER_LAT = -7.157197932656336;
 const CENTER_LNG = 113.49101646077567;
 const MAX_RADIUS = 70; // meter
+const MAX_ACCURACY = 100; // toleransi indoor
 
 function hitungJarak(lat1, lon1, lat2, lon2) {
-    const R = 6371000; // meter
+    const R = 6371000;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
 
@@ -301,8 +302,7 @@ function hitungJarak(lat1, lon1, lat2, lon2) {
         Math.cos(lat2 * Math.PI / 180) *
         Math.sin(dLon/2) * Math.sin(dLon/2);
 
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
 }
 
 const btn = document.querySelector('button[name="absen"]');
@@ -311,10 +311,7 @@ btn.addEventListener('click', function(e) {
     e.preventDefault();
 
     if (!navigator.geolocation) {
-        Swal.fire({
-            icon: 'error',
-            text: 'Browser tidak mendukung GPS'
-        });
+        Swal.fire('Error', 'Browser tidak mendukung GPS', 'error');
         return;
     }
 
@@ -326,49 +323,50 @@ btn.addEventListener('click', function(e) {
 
     navigator.geolocation.getCurrentPosition(
         function(pos) {
+
+            Swal.close(); // ⬅️ WAJIB TUTUP LOADING
+
             const lat = pos.coords.latitude;
             const lng = pos.coords.longitude;
-            const acc = pos.coords.accuracy; // ⬅️ PENTING
+            const acc = pos.coords.accuracy ?? 999;
 
-            if (acc > 50) {
+            // DEBUG (hapus kalau sudah yakin)
+            console.log('LAT:', lat, 'LNG:', lng, 'ACC:', acc);
+
+            if (acc > MAX_ACCURACY) {
                 Swal.fire({
                     icon: 'warning',
-                    title: 'Sinyal GPS Lemah',
-                    text: 'Silakan mendekat ke jendela atau aktifkan lokasi dengan akurasi tinggi'
+                    title: 'GPS Tidak Akurat',
+                    text: 'Sinyal GPS lemah, coba dekat jendela atau aktifkan akurasi tinggi'
                 });
                 return;
             }
 
-            const jarak = hitungJarak(
-                lat, lng,
-                CENTER_LAT, CENTER_LNG
-            );
+            const jarak = hitungJarak(lat, lng, CENTER_LAT, CENTER_LNG);
 
             if (jarak > MAX_RADIUS) {
                 Swal.fire({
                     icon: 'error',
                     title: 'Di luar jangkauan',
-                    text: 'Anda tidak berada di lokasi absensi'
+                    text: `Jarak Anda ${Math.round(jarak)} meter dari lokasi`
                 });
-                return; // ❌ STOP DI SINI — TIDAK SUBMIT
+                return;
             }
 
-            // ✅ LOKASI VALID → BARU SUBMIT
-            document.getElementById('latitude').value  = lat;
+            // ✅ LOLOS SEMUA → SUBMIT
+            document.getElementById('latitude').value = lat;
             document.getElementById('longitude').value = lng;
 
-            Swal.close();
             btn.closest('form').submit();
         },
-        function() {
-            Swal.fire({
-                icon: 'error',
-                text: 'GPS wajib diaktifkan dan diizinkan'
-            });
+        function(err) {
+            Swal.close();
+            Swal.fire('Error', 'GPS wajib diaktifkan & diizinkan', 'error');
         },
         {
             enableHighAccuracy: true,
-            timeout: 15000
+            timeout: 20000,
+            maximumAge: 0
         }
     );
 });
