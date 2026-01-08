@@ -288,7 +288,7 @@ button:active {
 <script>
 const CENTER_LAT = -7.157197932656336;
 const CENTER_LNG = 113.49101646077567;
-const MAX_RADIUS = 0; // meter
+const MAX_RADIUS = 30; // meter
 
 function hitungJarak(lat1, lon1, lat2, lon2) {
     const R = 6371000; // meter
