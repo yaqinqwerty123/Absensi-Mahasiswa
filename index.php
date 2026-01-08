@@ -284,11 +284,31 @@ button:active {
 </form>
 
 </div>
+
 <script>
+const CENTER_LAT = -7.157197932656336;
+const CENTER_LNG = 113.49101646077567;
+const MAX_RADIUS = 30; // meter
+
+function hitungJarak(lat1, lon1, lat2, lon2) {
+    const R = 6371000; // meter
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+
+    const a =
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1 * Math.PI / 180) *
+        Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}
+
 const btn = document.querySelector('button[name="absen"]');
 
 btn.addEventListener('click', function(e) {
-    e.preventDefault(); // STOP submit dulu
+    e.preventDefault();
 
     if (!navigator.geolocation) {
         Swal.fire({
@@ -301,20 +321,36 @@ btn.addEventListener('click', function(e) {
     Swal.fire({
         title: 'Mengambil lokasi...',
         allowOutsideClick: false,
-        didOpen: () => {
-            Swal.showLoading();
-        }
+        didOpen: () => Swal.showLoading()
     });
 
     navigator.geolocation.getCurrentPosition(
         function(pos) {
-            document.getElementById('latitude').value  = pos.coords.latitude;
-            document.getElementById('longitude').value = pos.coords.longitude;
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+
+            const jarak = hitungJarak(
+                lat, lng,
+                CENTER_LAT, CENTER_LNG
+            );
+
+            if (jarak > MAX_RADIUS) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Di luar jangkauan',
+                    text: 'Anda tidak berada di lokasi absensi'
+                });
+                return; // ❌ STOP DI SINI — TIDAK SUBMIT
+            }
+
+            // ✅ LOKASI VALID → BARU SUBMIT
+            document.getElementById('latitude').value  = lat;
+            document.getElementById('longitude').value = lng;
 
             Swal.close();
-            btn.closest('form').submit(); // SUBMIT SETELAH GPS VALID
+            btn.closest('form').submit();
         },
-        function(err) {
+        function() {
             Swal.fire({
                 icon: 'error',
                 text: 'GPS wajib diaktifkan dan diizinkan'
