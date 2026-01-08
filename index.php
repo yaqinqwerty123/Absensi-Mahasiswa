@@ -51,105 +51,118 @@ if (isset($_POST['absen'])) {
     $shift = mysql_real_escape_string($_POST['shift']);
     $ket   = mysql_real_escape_string($_POST['jenis_absen']);
 
-    if ($nim=='' || $pass=='' || $shift=='' || $ket=='') {
-        $error = "Semua field wajib diisi";
-        goto END;
-    }
 
-    $lat = $_POST['latitude'] ?? '';
-    $lng = $_POST['longitude'] ?? '';
+    // ===============================
+    // VALIDASI LOKASI (WAJIB PALING AWAL)
+    // ===============================
+    $lat = isset($_POST['latitude']) ? $_POST['latitude'] : '';
+    $lng = isset($_POST['longitude']) ? $_POST['longitude'] : '';
 
-    if ($lat=='' || $lng=='') {
-        $error = "Lokasi tidak terbaca";
-        goto END;
-    }
-
-    $jarak = hitungJarak($lat, $lng, $CENTER_LAT, $CENTER_LNG);
-    if ($jarak > $MAX_RADIUS) {
-        $error = "Anda berada di luar lokasi absensi";
-        goto END;
-    }
-
-    $qMhs = mysql_query("
-        SELECT * FROM mahasiswa
-        WHERE nim='$nim'
-        AND password_mhs='$pass'
-        AND status='1'
-        LIMIT 1
-    ");
-
-    if (mysql_num_rows($qMhs)==0) {
-        $error = "NIM atau password salah";
-        goto END;
-    }
-
-    $m = mysql_fetch_assoc($qMhs);
-    $id_mhs = $m['id_mhs'];
-
-    if ($ket=='H') {
-        $cek = mysql_query("
-            SELECT id FROM absensi
-            WHERE id_mhs='$id_mhs'
-            AND DATE(tanggal)='$today'
-            AND keterangan='H'
-            AND id_shift='$shift'
-        ");
-
-        if (mysql_num_rows($cek)>0) {
-            $error = "Sudah absen datang";
-            goto END;
+    if ($lat == '' || $lng == '') {
+        $error = "Lokasi tidak terdeteksi, aktifkan GPS";
+    } else {
+        $jarak = hitungJarak($lat, $lng, $CENTER_LAT, $CENTER_LNG);
+        if ($jarak > $MAX_RADIUS) {
+            $error = "Anda tidak sedang berada di lokasi absensi";
         }
+    }
 
-        mysql_query("
-            INSERT INTO absensi
-            (id_mhs,id_shift,tanggal,keterangan)
-            VALUES
-            ('$id_mhs','$shift','$nowDatetime','H')
-        ");
-
-        $sukses = "Absen datang berhasil";
-
+   
+    if ($nim == '' || $pass == '' || $shift == '' || $ket == '') {
+        $error = "Semua field wajib diisi";
     } else {
 
-        $cekDatang = mysql_query("
-            SELECT id FROM absensi
-            WHERE id_mhs='$id_mhs'
-            AND DATE(tanggal)='$today'
-            AND keterangan='H'
-            AND id_shift='$shift'
+        $qMhs = mysql_query("
+            SELECT * FROM mahasiswa
+            WHERE nim='$nim'
+            AND password_mhs='$pass'
+            AND status='1'
+            LIMIT 1
         ");
 
-        if (mysql_num_rows($cekDatang)==0) {
-            $error = "Belum absen datang";
-            goto END;
+        if (mysql_num_rows($qMhs) == 0) {
+            $error = "NIM atau Password salah";
+        } else {
+            // print_r('nim bener sama password bener');
+            // exit;
+            $m = mysql_fetch_assoc($qMhs);
+            $id_mhs = $m['id_mhs'];
+
+            // ===============================
+            // ABSEN DATANG
+            // ===============================
+            if ($ket == 'H') {
+                // print_r('hadir');
+                //             exit;
+                $cek = mysql_query("
+                    SELECT id FROM absensi
+                    WHERE id_mhs='$id_mhs'
+                    AND DATE(tanggal)='$today'
+                    AND keterangan='H'
+                    AND id_shift='$shift'
+                    LIMIT 1
+                ");
+
+                if (mysql_num_rows($cek) > 0) {
+                    $error = "Anda sudah absen datang hari ini";
+                } else {
+
+                    mysql_query("
+                        INSERT INTO absensi
+                        (id_mhs, id_shift, tanggal, keterangan)
+                        VALUES
+                        ('$id_mhs','$shift','$nowDatetime','H')
+                    ");
+
+                    $sukses = "Absen datang berhasil";
+                }
+
+            }
+            // ===============================
+            // ABSEN PULANG
+            // ===============================
+            else {
+
+                $cekDatang = mysql_query("
+                    SELECT id FROM absensi
+                    WHERE id_mhs='$id_mhs'
+                    AND DATE(tanggal)='$today'
+                    AND keterangan='H'
+                    AND id_shift='$shift'
+                    LIMIT 1
+                ");
+
+                if (mysql_num_rows($cekDatang) == 0) {
+                    $error = "Anda belum absen datang";
+                } else {
+
+                    $cekPulang = mysql_query("
+                        SELECT id FROM absensi
+                        WHERE id_mhs='$id_mhs'
+                        AND DATE(tanggal)='$today'
+                        AND keterangan='Pulang'
+                        AND id_shift='$shift'
+                        LIMIT 1
+                    ");
+
+                    if (mysql_num_rows($cekPulang) > 0) {
+                        $error = "Anda sudah absen pulang hari ini";
+                    } else {
+
+                        mysql_query("
+                            INSERT INTO absensi
+                            (id_mhs, id_shift, tanggal, keterangan)
+                            VALUES
+                            ('$id_mhs','$shift','$nowDatetime','Pulang')
+                        ");
+
+                        $sukses = "Absen pulang berhasil";
+                    }
+                }
+            }
         }
-
-        $cekPulang = mysql_query("
-            SELECT id FROM absensi
-            WHERE id_mhs='$id_mhs'
-            AND DATE(tanggal)='$today'
-            AND keterangan='Pulang'
-            AND id_shift='$shift'
-        ");
-
-        if (mysql_num_rows($cekPulang)>0) {
-            $error = "Sudah absen pulang";
-            goto END;
-        }
-
-        mysql_query("
-            INSERT INTO absensi
-            (id_mhs,id_shift,tanggal,keterangan)
-            VALUES
-            ('$id_mhs','$shift','$nowDatetime','Pulang')
-        ");
-
-        $sukses = "Absen pulang berhasil";
     }
-
-    END:
 }
-
 ?>
 
 <!DOCTYPE html>
