@@ -269,7 +269,7 @@ button:active {
         <?php echo $shiftOpt; ?>
     </select>
 
-    <button type="submit">ABSEN SEKARANG</button>
+    <button type="submit" id="btnAbsen">ABSEN SEKARANG</button>
 
 </form>
 
@@ -277,10 +277,10 @@ button:active {
 
 <script>
 const form = document.querySelector('form');
-const btn  = document.querySelector('button[name="absen"]');
+const btn  = document.getElementById('btnAbsen');
 let isSubmitting = false;
 
-btn.addEventListener('click', function (e) {
+form.addEventListener('submit', function (e) {
     e.preventDefault();
 
     if (isSubmitting) return;
@@ -302,21 +302,18 @@ btn.addEventListener('click', function (e) {
 
     navigator.geolocation.getCurrentPosition(
         function (pos) {
-
             document.getElementById('latitude').value  = pos.coords.latitude;
             document.getElementById('longitude').value = pos.coords.longitude;
 
             Swal.close();
-            form.submit();
+            form.submit(); // submit ASLI setelah GPS dapet
         },
         function (err) {
-
             isSubmitting = false;
             btn.disabled = false;
             Swal.close();
 
             let msg = 'Gagal mengambil lokasi';
-
             if (err.code === 1) msg = 'Izin lokasi ditolak';
             if (err.code === 2) msg = 'Lokasi tidak tersedia';
             if (err.code === 3) msg = 'GPS timeout, coba lagi';
@@ -324,13 +321,14 @@ btn.addEventListener('click', function (e) {
             Swal.fire('Error', msg, 'error');
         },
         {
-            enableHighAccuracy: false, // indoor friendly
+            enableHighAccuracy: false,
             timeout: 15000,
             maximumAge: 60000
         }
     );
 });
 </script>
+
 
 
 
