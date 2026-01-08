@@ -13,13 +13,18 @@ $MAX_RADIUS = 70; // meter
 
 function hitungJarak($lat1, $lon1, $lat2, $lon2) {
     $earthRadius = 6371000;
+
     $dLat = deg2rad($lat2 - $lat1);
     $dLon = deg2rad($lon2 - $lon1);
-    $a = sin($dLat/2)**2 +
+
+    $a = sin($dLat / 2) * sin($dLat / 2) +
          cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
-         sin($dLon/2)**2;
-    return 2 * $earthRadius * atan2(sqrt($a), sqrt(1-$a));
+         sin($dLon / 2) * sin($dLon / 2);
+
+    $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+    return $earthRadius * $c;
 }
+
 
 $nowDatetime = date('Y-m-d H:i:s');
 $today       = date('Y-m-d');
@@ -41,12 +46,13 @@ while ($s = mysql_fetch_assoc($qShift)) {
 // ===============================
 if (isset($_POST['absen'])) {
 
-    $nim   = trim($_POST['nim'] ?? '');
-    $pass  = md5(trim($_POST['password'] ?? ''));
-    $shift = $_POST['shift'] ?? '';
-    $ket   = $_POST['jenis_absen'] ?? '';
-    $lat   = $_POST['latitude'] ?? '';
-    $lng   = $_POST['longitude'] ?? '';
+    $nim   = isset($_POST['nim']) ? trim($_POST['nim']) : '';
+    $pass  = isset($_POST['password']) ? md5(trim($_POST['password'])) : '';
+    $shift = isset($_POST['shift']) ? $_POST['shift'] : '';
+    $ket   = isset($_POST['jenis_absen']) ? $_POST['jenis_absen'] : '';
+    $lat   = isset($_POST['latitude']) ? $_POST['latitude'] : '';
+    $lng   = isset($_POST['longitude']) ? $_POST['longitude'] : '';
+
 
     // VALIDASI INPUT
     if ($nim=='' || $pass=='' || $shift=='' || $ket=='') {
@@ -242,6 +248,8 @@ button:active {
 <form method="post">
     <input type="hidden" name="latitude" id="latitude">
     <input type="hidden" name="longitude" id="longitude">
+    <input type="hidden" name="absen" value="1">
+
 
     <label>NIM</label>
     <input type="text" name="nim" placeholder="Masukkan NIM" required>
@@ -261,7 +269,7 @@ button:active {
         <?php echo $shiftOpt; ?>
     </select>
 
-    <button type="submit" name="absen">ABSEN SEKARANG</button>
+    <button type="submit">ABSEN SEKARANG</button>
 
 </form>
 
