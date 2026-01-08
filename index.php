@@ -9,7 +9,7 @@ date_default_timezone_set('Asia/Jakarta');
 // ===============================
 $CENTER_LAT = -7.157197932656336;
 $CENTER_LNG = 113.49101646077567;
-$MAX_RADIUS = 30; // meter
+$MAX_RADIUS = 70; // meter
 
 function hitungJarak($lat1, $lon1, $lat2, $lon2) {
     $earthRadius = 6371000; // meter
@@ -288,7 +288,7 @@ button:active {
 <script>
 const CENTER_LAT = -7.157197932656336;
 const CENTER_LNG = 113.49101646077567;
-const MAX_RADIUS = 30; // meter
+const MAX_RADIUS = 70; // meter
 
 function hitungJarak(lat1, lon1, lat2, lon2) {
     const R = 6371000; // meter
@@ -328,6 +328,16 @@ btn.addEventListener('click', function(e) {
         function(pos) {
             const lat = pos.coords.latitude;
             const lng = pos.coords.longitude;
+            const acc = pos.coords.accuracy; // ⬅️ PENTING
+
+            if (acc > 50) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Sinyal GPS Lemah',
+                    text: 'Silakan mendekat ke jendela atau aktifkan lokasi dengan akurasi tinggi'
+                });
+                return;
+            }
 
             const jarak = hitungJarak(
                 lat, lng,
