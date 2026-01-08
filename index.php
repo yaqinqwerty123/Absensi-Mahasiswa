@@ -12,17 +12,13 @@ $CENTER_LNG = 113.49101646077567;
 $MAX_RADIUS = 70; // meter
 
 function hitungJarak($lat1, $lon1, $lat2, $lon2) {
-    $earthRadius = 6371000; // meter
-
+    $earthRadius = 6371000;
     $dLat = deg2rad($lat2 - $lat1);
     $dLon = deg2rad($lon2 - $lon1);
-
-    $a = sin($dLat/2) * sin($dLat/2) +
+    $a = sin($dLat/2)**2 +
          cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
-         sin($dLon/2) * sin($dLon/2);
-
-    $c = 2 * atan2(sqrt($a), sqrt(1-$a));
-    return $earthRadius * $c;
+         sin($dLon/2)**2;
+    return 2 * $earthRadius * atan2(sqrt($a), sqrt(1-$a));
 }
 
 $nowDatetime = date('Y-m-d H:i:s');
@@ -40,130 +36,116 @@ while ($s = mysql_fetch_assoc($qShift)) {
     $shiftOpt .= '<option value="'.$s['id'].'">'.$s['nama_shift'].'</option>';
 }
 
-
 // ===============================
 // PROSES LOGIN + ABSEN
 // ===============================
 if (isset($_POST['absen'])) {
 
-    $nim   = mysql_real_escape_string(trim($_POST['nim']));
-    $pass  = md5(trim($_POST['password']));
-    $shift = mysql_real_escape_string($_POST['shift']);
-    $ket   = mysql_real_escape_string($_POST['jenis_absen']);
+    $nim   = trim($_POST['nim'] ?? '');
+    $pass  = md5(trim($_POST['password'] ?? ''));
+    $shift = $_POST['shift'] ?? '';
+    $ket   = $_POST['jenis_absen'] ?? '';
+    $lat   = $_POST['latitude'] ?? '';
+    $lng   = $_POST['longitude'] ?? '';
 
+    // VALIDASI INPUT
+    if ($nim=='' || $pass=='' || $shift=='' || $ket=='') {
+        $error = "Semua field wajib diisi";
+    }
 
-    // ===============================
-    // VALIDASI LOKASI (WAJIB PALING AWAL)
-    // ===============================
-    $lat = isset($_POST['latitude']) ? $_POST['latitude'] : '';
-    $lng = isset($_POST['longitude']) ? $_POST['longitude'] : '';
+    // VALIDASI LOKASI
+    if ($error=='' && ($lat=='' || $lng=='')) {
+        $error = "Lokasi tidak terbaca, aktifkan GPS";
+    }
 
-    if ($lat == '' || $lng == '') {
-        $error = "Lokasi tidak terdeteksi, aktifkan GPS";
-    } else {
+    if ($error=='') {
         $jarak = hitungJarak($lat, $lng, $CENTER_LAT, $CENTER_LNG);
         if ($jarak > $MAX_RADIUS) {
-            $error = "Anda tidak sedang berada di lokasi absensi";
+            $error = "Anda berada di luar lokasi absensi";
         }
     }
 
-   
-    if ($nim == '' || $pass == '' || $shift == '' || $ket == '') {
-        $error = "Semua field wajib diisi";
-    } else {
-
+    // VALIDASI LOGIN
+    if ($error=='') {
         $qMhs = mysql_query("
             SELECT * FROM mahasiswa
-            WHERE nim='$nim'
+            WHERE nim='".mysql_real_escape_string($nim)."'
             AND password_mhs='$pass'
             AND status='1'
             LIMIT 1
         ");
 
-        if (mysql_num_rows($qMhs) == 0) {
-            $error = "NIM atau Password salah";
+        if (mysql_num_rows($qMhs)==0) {
+            $error = "NIM atau password salah";
         } else {
-            // print_r('nim bener sama password bener');
-            // exit;
             $m = mysql_fetch_assoc($qMhs);
             $id_mhs = $m['id_mhs'];
+        }
+    }
 
-            // ===============================
-            // ABSEN DATANG
-            // ===============================
-            if ($ket == 'H') {
-                // print_r('hadir');
-                //             exit;
-                $cek = mysql_query("
-                    SELECT id FROM absensi
-                    WHERE id_mhs='$id_mhs'
-                    AND DATE(tanggal)='$today'
-                    AND keterangan='H'
-                    AND id_shift='$shift'
-                    LIMIT 1
+    // ===============================
+    // ABSEN DATANG
+    // ===============================
+    if ($error=='' && $ket=='H') {
+
+        $cek = mysql_query("
+            SELECT id FROM absensi
+            WHERE id_mhs='$id_mhs'
+            AND DATE(tanggal)='$today'
+            AND keterangan='H'
+            AND id_shift='$shift'
+        ");
+
+        if (mysql_num_rows($cek)>0) {
+            $error = "Anda sudah absen datang hari ini";
+        } else {
+            mysql_query("
+                INSERT INTO absensi (id_mhs,id_shift,tanggal,keterangan)
+                VALUES ('$id_mhs','$shift','$nowDatetime','H')
+            ");
+            $sukses = "Absen datang berhasil";
+        }
+    }
+
+    // ===============================
+    // ABSEN PULANG
+    // ===============================
+    if ($error=='' && $ket=='Pulang') {
+
+        $cekDatang = mysql_query("
+            SELECT id FROM absensi
+            WHERE id_mhs='$id_mhs'
+            AND DATE(tanggal)='$today'
+            AND keterangan='H'
+            AND id_shift='$shift'
+        ");
+
+        if (mysql_num_rows($cekDatang)==0) {
+            $error = "Anda belum absen datang";
+        } else {
+
+            $cekPulang = mysql_query("
+                SELECT id FROM absensi
+                WHERE id_mhs='$id_mhs'
+                AND DATE(tanggal)='$today'
+                AND keterangan='Pulang'
+                AND id_shift='$shift'
+            ");
+
+            if (mysql_num_rows($cekPulang)>0) {
+                $error = "Anda sudah absen pulang hari ini";
+            } else {
+                mysql_query("
+                    INSERT INTO absensi (id_mhs,id_shift,tanggal,keterangan)
+                    VALUES ('$id_mhs','$shift','$nowDatetime','Pulang')
                 ");
-
-                if (mysql_num_rows($cek) > 0) {
-                    $error = "Anda sudah absen datang hari ini";
-                } else {
-
-                    mysql_query("
-                        INSERT INTO absensi
-                        (id_mhs, id_shift, tanggal, keterangan)
-                        VALUES
-                        ('$id_mhs','$shift','$nowDatetime','H')
-                    ");
-
-                    $sukses = "Absen datang berhasil";
-                }
-
-            }
-            // ===============================
-            // ABSEN PULANG
-            // ===============================
-            else {
-
-                $cekDatang = mysql_query("
-                    SELECT id FROM absensi
-                    WHERE id_mhs='$id_mhs'
-                    AND DATE(tanggal)='$today'
-                    AND keterangan='H'
-                    AND id_shift='$shift'
-                    LIMIT 1
-                ");
-
-                if (mysql_num_rows($cekDatang) == 0) {
-                    $error = "Anda belum absen datang";
-                } else {
-
-                    $cekPulang = mysql_query("
-                        SELECT id FROM absensi
-                        WHERE id_mhs='$id_mhs'
-                        AND DATE(tanggal)='$today'
-                        AND keterangan='Pulang'
-                        AND id_shift='$shift'
-                        LIMIT 1
-                    ");
-
-                    if (mysql_num_rows($cekPulang) > 0) {
-                        $error = "Anda sudah absen pulang hari ini";
-                    } else {
-
-                        mysql_query("
-                            INSERT INTO absensi
-                            (id_mhs, id_shift, tanggal, keterangan)
-                            VALUES
-                            ('$id_mhs','$shift','$nowDatetime','Pulang')
-                        ");
-
-                        $sukses = "Absen pulang berhasil";
-                    }
-                }
+                $sukses = "Absen pulang berhasil";
             }
         }
     }
 }
 ?>
+
 
 <!DOCTYPE html>
 <html lang="id">
@@ -286,39 +268,55 @@ button:active {
 </div>
 
 <script>
-const btn = document.querySelector('button[name="absen"]');
+const form = document.querySelector('form');
+const btn  = document.querySelector('button[name="absen"]');
+let isSubmitting = false;
 
-btn.addEventListener('click', function(e) {
+btn.addEventListener('click', function (e) {
     e.preventDefault();
+
+    if (isSubmitting) return;
 
     if (!navigator.geolocation) {
         Swal.fire('Error', 'Browser tidak mendukung GPS', 'error');
         return;
     }
 
+    isSubmitting = true;
+    btn.disabled = true;
+
     Swal.fire({
         title: 'Mengambil lokasi...',
+        text: 'Pastikan GPS aktif',
         allowOutsideClick: false,
         didOpen: () => Swal.showLoading()
     });
 
     navigator.geolocation.getCurrentPosition(
-        function(pos) {
+        function (pos) {
 
             document.getElementById('latitude').value  = pos.coords.latitude;
             document.getElementById('longitude').value = pos.coords.longitude;
 
             Swal.close();
-
-            // ⬅️ PAKSA SUBMIT
-            document.querySelector('form').submit();
+            form.submit();
         },
-        function() {
+        function (err) {
+
+            isSubmitting = false;
+            btn.disabled = false;
             Swal.close();
-            Swal.fire('Error', 'GPS wajib diaktifkan', 'error');
+
+            let msg = 'Gagal mengambil lokasi';
+
+            if (err.code === 1) msg = 'Izin lokasi ditolak';
+            if (err.code === 2) msg = 'Lokasi tidak tersedia';
+            if (err.code === 3) msg = 'GPS timeout, coba lagi';
+
+            Swal.fire('Error', msg, 'error');
         },
         {
-            enableHighAccuracy: false, // ⬅️ PENTING UNTUK INDOOR
+            enableHighAccuracy: false, // indoor friendly
             timeout: 15000,
             maximumAge: 60000
         }
@@ -328,21 +326,15 @@ btn.addEventListener('click', function(e) {
 
 
 
-<?php if (isset($_POST['absen']) && $error !== '') { ?>
+<?php if ($error!='') { ?>
 <script>
-Swal.fire({
-    icon: 'error',
-    text: '<?= addslashes($error); ?>'
-});
+Swal.fire({ icon:'error', text:'<?= addslashes($error) ?>' });
 </script>
 <?php } ?>
 
-<?php if (isset($_POST['absen']) && $sukses !== '') { ?>
+<?php if ($sukses!='') { ?>
 <script>
-Swal.fire({
-    icon: 'success',
-    text: '<?= addslashes($sukses); ?>'
-});
+Swal.fire({ icon:'success', text:'<?= addslashes($sukses) ?>' });
 </script>
 <?php } ?>
 
