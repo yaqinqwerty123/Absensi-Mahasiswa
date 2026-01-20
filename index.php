@@ -118,13 +118,18 @@ if (isset($_POST['absen'])) {
     // ===============================
     if ($error=='' && $ket=='Pulang') {
 
+
         $cekDatang = mysql_query("
             SELECT id FROM absensi
             WHERE id_mhs='$id_mhs'
             AND keterangan='H'
             AND id_shift='$shift'
-            AND tanggal >= DATE_SUB('$nowDatetime', INTERVAL 6 HOUR)
+            AND (
+                DATE(tanggal) = DATE('$nowDatetime')
+                OR DATE(tanggal) = DATE(DATE_SUB('$nowDatetime', INTERVAL 1 DAY))
+            )
         ");
+
 
 
         if (mysql_num_rows($cekDatang)==0) {
