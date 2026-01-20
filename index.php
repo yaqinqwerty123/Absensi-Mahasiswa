@@ -121,10 +121,11 @@ if (isset($_POST['absen'])) {
         $cekDatang = mysql_query("
             SELECT id FROM absensi
             WHERE id_mhs='$id_mhs'
-            AND DATE(tanggal)='$today'
             AND keterangan='H'
             AND id_shift='$shift'
+            AND tanggal >= DATE_SUB('$nowDatetime', INTERVAL 6 HOUR)
         ");
+
 
         if (mysql_num_rows($cekDatang)==0) {
             $error = "Anda belum absen datang";
