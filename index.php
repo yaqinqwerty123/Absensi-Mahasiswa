@@ -7,9 +7,9 @@ date_default_timezone_set('Asia/Jakarta');
 // ===============================
 // KONFIGURASI LOKASI ABSENSI
 // ===============================
-$CENTER_LAT = -7.157197932656336;
-$CENTER_LNG = 113.49101646077567;
-$MAX_RADIUS = 100; // meter
+$CENTER_LAT = -7.15721471;
+$CENTER_LNG = 113.4908241;
+$MAX_RADIUS = 700; // meter
 
 function hitungJarak($lat1, $lon1, $lat2, $lon2) {
     $earthRadius = 6371000;
@@ -60,15 +60,15 @@ if (isset($_POST['absen'])) {
     }
 
     // VALIDASI LOKASI
-    if ($error=='' && ($lat=='' || $lng=='')) {
-        $error = "Lokasi tidak terbaca, aktifkan GPS";
+    if ($error == '' && (!is_numeric($lat) || !is_numeric($lng))) {
+    $error = "Lokasi tidak terbaca, aktifkan GPS";
     }
 
-    if ($error=='') {
-        $jarak = hitungJarak($lat, $lng, $CENTER_LAT, $CENTER_LNG);
-        if ($jarak > $MAX_RADIUS) {
-            $error = "Anda berada di luar lokasi absensi";
-        }
+    if ($error == '') {
+    $jarak = hitungJarak($CENTER_LAT, $CENTER_LNG, $lat, $lng);
+    if ($jarak > $MAX_RADIUS) {
+        $error = "Anda berada di luar lokasi absensi (±" . round($jarak) . " m)";
+    }
     }
 
     // VALIDASI LOGIN
@@ -308,11 +308,25 @@ form.addEventListener('submit', function (e) {
 
     navigator.geolocation.getCurrentPosition(
         function (pos) {
+            const accuracy = pos.coords.accuracy;
+
+            if (accuracy > 1000) {
+                isSubmitting = false;
+                btn.disabled = false;
+                Swal.close();
+                Swal.fire(
+                    'Error',
+                    'Akurasi GPS buruk (' + Math.round(accuracy) + 'm). Aktifkan GPS & tunggu sinyal stabil.',
+                    'error'
+                );
+                return;
+            }
+
             document.getElementById('latitude').value  = pos.coords.latitude;
             document.getElementById('longitude').value = pos.coords.longitude;
 
             Swal.close();
-            form.submit(); // submit ASLI setelah GPS dapet
+            form.submit();
         },
         function (err) {
             isSubmitting = false;
@@ -327,10 +341,12 @@ form.addEventListener('submit', function (e) {
             Swal.fire('Error', msg, 'error');
         },
         {
-            enableHighAccuracy: false,
-            timeout: 15000,
-            maximumAge: 60000
+            enableHighAccuracy: true,
+            timeout: 20000,
+            maximumAge: 0
         }
+
+
     );
 });
 </script>
