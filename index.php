@@ -5,10 +5,10 @@ include "koneksi.php";
 date_default_timezone_set('Asia/Jakarta');
 
 // ===============================
-// KONFIGURASI LOKASI ABSENSI
+// KONFIGURASI RADIUS ABSENSI
 // ===============================
-$CENTER_LAT = -7.15721471;
-$CENTER_LNG = 113.4908241;
+// Radius ini dihitung dari titik lokasi EVENT yang dipilih pegawai
+// (kolom latitude_longitude di tabel list_event_rs), bukan titik tetap.
 $MAX_RADIUS = 700; // meter
 
 function hitungJarak($lat1, $lon1, $lat2, $lon2) {
@@ -25,7 +25,6 @@ function hitungJarak($lat1, $lon1, $lat2, $lon2) {
     return $earthRadius * $c;
 }
 
-
 $nowDatetime = date('Y-m-d H:i:s');
 $today       = date('Y-m-d');
 
@@ -33,12 +32,36 @@ $error  = '';
 $sukses = '';
 
 // ===============================
-// DATA SHIFT
+// DATA EVENT (dari list_event_rs)
 // ===============================
-$shiftOpt = '<option value="">Pilih Shift</option>';
-$qShift = mysql_query("SELECT * FROM shift ORDER BY id ASC");
-while ($s = mysql_fetch_assoc($qShift)) {
-    $shiftOpt .= '<option value="'.$s['id'].'">'.$s['nama_shift'].'</option>';
+// NOTE: kalau mau tampilkan event hari ini SAJA, tinggal tambah
+// "AND date = CURDATE()" di WHERE clause di bawah.
+$eventOpt = '<option value="">Pilih Event</option>';
+$qEvent = mysql_query("
+    SELECT
+        id_event,
+        nama_event,
+        nama_lokasi,
+        latitude_longitude,
+        DATE_FORMAT(date,'%d-%m-%Y') AS tgl_event,
+        mulai,
+        selesai
+    FROM list_event_rs
+    WHERE (deletemark IS NULL OR deletemark = 0)
+      AND date >= CURDATE()
+    ORDER BY date ASC, mulai ASC
+");
+while ($ev = mysql_fetch_assoc($qEvent)) {
+    $jamLabel = '';
+    if (!empty($ev['mulai']) || !empty($ev['selesai'])) {
+        $jamLabel = ' (' . substr($ev['mulai'],0,5) . '-' . substr($ev['selesai'],0,5) . ')';
+    }
+    $labelLokasi = !empty($ev['nama_lokasi']) ? ' - ' . $ev['nama_lokasi'] : '';
+
+    $eventOpt .= '<option value="'.$ev['id_event'].'">'
+        . htmlspecialchars($ev['nama_event']) . $labelLokasi
+        . ' | ' . $ev['tgl_event'] . $jamLabel
+        . '</option>';
 }
 
 // ===============================
@@ -46,243 +69,442 @@ while ($s = mysql_fetch_assoc($qShift)) {
 // ===============================
 if (isset($_POST['absen'])) {
 
-    $nim   = isset($_POST['nim']) ? trim($_POST['nim']) : '';
-    $pass  = isset($_POST['password']) ? md5(trim($_POST['password'])) : '';
-    $shift = isset($_POST['shift']) ? $_POST['shift'] : '';
-    $ket   = isset($_POST['jenis_absen']) ? $_POST['jenis_absen'] : '';
-    $lat   = isset($_POST['latitude']) ? $_POST['latitude'] : '';
-    $lng   = isset($_POST['longitude']) ? $_POST['longitude'] : '';
-
+    $hp       = isset($_POST['hp']) ? trim($_POST['hp']) : '';
+    $pass     = isset($_POST['password']) ? md5(trim($_POST['password'])) : '';
+    $id_event = isset($_POST['id_event']) ? $_POST['id_event'] : '';
+    $lat      = isset($_POST['latitude']) ? $_POST['latitude'] : '';
+    $lng      = isset($_POST['longitude']) ? $_POST['longitude'] : '';
 
     // VALIDASI INPUT
-    if ($nim=='' || $pass=='' || $shift=='' || $ket=='') {
+    if ($hp=='' || $pass=='' || $id_event=='') {
         $error = "Semua field wajib diisi";
     }
 
-    // VALIDASI LOKASI
+    // VALIDASI LOKASI GPS
     if ($error == '' && (!is_numeric($lat) || !is_numeric($lng))) {
-    $error = "Lokasi tidak terbaca, aktifkan GPS";
+        $error = "Lokasi tidak terbaca, aktifkan GPS";
     }
 
+    // VALIDASI LOGIN PEGAWAI (NO HP + PASSWORD)
+    $id_pegawai = '';
     if ($error == '') {
-    $jarak = hitungJarak($CENTER_LAT, $CENTER_LNG, $lat, $lng);
-    if ($jarak > $MAX_RADIUS) {
-        $error = "Anda berada di luar lokasi absensi (±" . round($jarak) . " m)";
-    }
-    }
-
-    // VALIDASI LOGIN
-    if ($error=='') {
-        $qMhs = mysql_query("
-            SELECT * FROM mahasiswa
-            WHERE nim='".mysql_real_escape_string($nim)."'
-            AND password_mhs='$pass'
-            AND status='1'
+        $qPeg = mysql_query("
+            SELECT * FROM pegawai
+            WHERE HP='".mysql_real_escape_string($hp)."'
+            AND PASSWORD='$pass'
             LIMIT 1
         ");
 
-        if (mysql_num_rows($qMhs)==0) {
-            $error = "NIM atau password salah";
+        if (mysql_num_rows($qPeg)==0) {
+            $error = "No HP atau password salah";
         } else {
-            $m = mysql_fetch_assoc($qMhs);
-            $id_mhs = $m['id_mhs'];
+            $peg = mysql_fetch_assoc($qPeg);
+            $id_pegawai = $peg['PEGAWAI_ID'];
         }
     }
 
-    // ===============================
-    // ABSEN DATANG
-    // ===============================
-    if ($error=='' && $ket=='H') {
-
-        $cek = mysql_query("
-            SELECT id FROM absensi
-            WHERE id_mhs='$id_mhs'
-            AND DATE(tanggal)='$today'
-            AND keterangan='H'
-            AND id_shift='$shift'
+    // AMBIL DATA EVENT TERPILIH (buat cek titik lokasi)
+    $eventData = null;
+    if ($error == '') {
+        $qEv = mysql_query("
+            SELECT * FROM list_event_rs
+            WHERE id_event='".mysql_real_escape_string($id_event)."'
+            AND (deletemark IS NULL OR deletemark = 0)
+            LIMIT 1
         ");
 
-        if (mysql_num_rows($cek)>0) {
-            $error = "Anda sudah absen datang hari ini";
+        if (mysql_num_rows($qEv)==0) {
+            $error = "Event tidak ditemukan";
         } else {
-            mysql_query("
-                INSERT INTO absensi (id_mhs,id_shift,tanggal,keterangan)
-                VALUES ('$id_mhs','$shift','$nowDatetime','H')
-            ");
-            $sukses = "Absen datang berhasil";
+            $eventData = mysql_fetch_assoc($qEv);
         }
     }
 
-    // ===============================
-    // ABSEN PULANG
-    // ===============================
-    if ($error=='' && $ket=='Pulang') {
+    // VALIDASI JENDELA WAKTU ABSEN (hanya boleh absen di tanggal & jam event berlangsung)
+    if ($error == '' && $eventData) {
 
+        // tanggal event harus = hari ini
+        if ($eventData['date'] != $today) {
+            $error = "Absen hanya bisa dilakukan pada tanggal event berlangsung (" . date('d-m-Y', strtotime($eventData['date'])) . ")";
+        }
+    }
 
-        $cekDatang = mysql_query("
-            SELECT id FROM absensi
-            WHERE id_mhs='$id_mhs'
-            AND keterangan='H'
-            AND id_shift='$shift'
-            AND (
-                DATE(tanggal) = DATE('$nowDatetime')
-                OR DATE(tanggal) = DATE(DATE_SUB('$nowDatetime', INTERVAL 1 DAY))
-            )
-        ");
+    if ($error == '' && $eventData) {
+        $jamMulai    = $eventData['mulai'];    // format H:i:s
+        $jamSelesai  = $eventData['selesai'];  // format H:i:s
+        $jamSekarang = date('H:i:s');
 
-
-
-        if (mysql_num_rows($cekDatang)==0) {
-            $error = "Anda belum absen datang";
-        } else {
-
-            $cekPulang = mysql_query("
-                SELECT id FROM absensi
-                WHERE id_mhs='$id_mhs'
-                AND DATE(tanggal)='$today'
-                AND keterangan='Pulang'
-                AND id_shift='$shift'
-            ");
-
-            if (mysql_num_rows($cekPulang)>0) {
-                $error = "Anda sudah absen pulang hari ini";
-            } else {
-                mysql_query("
-                    INSERT INTO absensi (id_mhs,id_shift,tanggal,keterangan)
-                    VALUES ('$id_mhs','$shift','$nowDatetime','Pulang')
-                ");
-                $sukses = "Absen pulang berhasil";
+        if (!empty($jamMulai) && !empty($jamSelesai)) {
+            if ($jamSekarang < $jamMulai || $jamSekarang > $jamSelesai) {
+                $error = "Absen hanya bisa dilakukan pada jam "
+                    . substr($jamMulai, 0, 5) . " - " . substr($jamSelesai, 0, 5)
+                    . " (sekarang " . substr($jamSekarang, 0, 5) . ")";
             }
         }
     }
+
+    // VALIDASI JARAK KE LOKASI EVENT
+    if ($error == '' && $eventData) {
+        $koordinat = explode(',', $eventData['latitude_longitude']);
+
+        if (count($koordinat) == 2) {
+            $eventLat = trim($koordinat[0]);
+            $eventLng = trim($koordinat[1]);
+
+            $jarak = hitungJarak($eventLat, $eventLng, $lat, $lng);
+            if ($jarak > $MAX_RADIUS) {
+                $error = "Anda berada di luar lokasi event (±" . round($jarak) . " m)";
+            }
+        } else {
+            $error = "Lokasi event belum diset dengan benar";
+        }
+    }
+
+    // CEK APAKAH SUDAH PERNAH ABSEN DI EVENT INI
+    if ($error == '') {
+        $cek = mysql_query("
+            SELECT id_absensi_pegawai FROM absensi_pegawai
+            WHERE pegawai_id='".mysql_real_escape_string($id_pegawai)."'
+            AND event_id='".mysql_real_escape_string($id_event)."'
+            AND (deletemark IS NULL OR deletemark = 0)
+        ");
+
+        if (mysql_num_rows($cek) > 0) {
+            $error = "Anda sudah absen pada event ini";
+        }
+    }
+
+    // SIMPAN ABSENSI
+    if ($error == '') {
+        mysql_query("
+            INSERT INTO absensi_pegawai (pegawai_id, event_id, tanggal_absen, deletemark)
+            VALUES (
+                '".mysql_real_escape_string($id_pegawai)."',
+                '".mysql_real_escape_string($id_event)."',
+                '$nowDatetime',
+                0
+            )
+        ");
+        $sukses = "Absen berhasil dicatat";
+    }
 }
 ?>
-
-
 <!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Absensi Mobile</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Presensi Pegawai - RSUD Mohammad Noer</title>
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <style>
+:root {
+    --navy: #0C447C;
+    --navy-dark: #082F57;
+    --accent: #3FA34B;
+    --bg-soft: #F3F6FA;
+}
+
 * { box-sizing: border-box; }
 
 body {
-    margin:0;
-    min-height:100vh;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-family: 'Segoe UI', Arial, sans-serif;
-    background: linear-gradient(135deg,#1e88e5,#42a5f5);
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    font-family: 'Poppins', 'Segoe UI', Arial, sans-serif;
+    background: linear-gradient(160deg, var(--navy) 0%, var(--navy-dark) 55%, #06213d 100%);
+    background-attachment: fixed;
+}
+
+.wrapper {
+    width: 100%;
+    max-width: 420px;
+}
+
+.brand {
+    text-align: center;
+    color: #fff;
+    margin-bottom: 20px;
+}
+
+.brand .logo-circle {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 12px;
+    border-radius: 50%;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 20px rgba(0,0,0,.25);
+}
+
+.brand .logo-circle i {
+    font-size: 28px;
+    color: var(--navy);
+}
+
+.brand h1 {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0 0 2px;
+    letter-spacing: .3px;
+}
+
+.brand p {
+    font-size: 12.5px;
+    margin: 0;
+    color: rgba(255,255,255,.75);
 }
 
 .card {
-    background:#fff;
-    width:100%;
-    max-width:420px;
-    padding:25px;
-    border-radius:14px;
-    box-shadow:0 10px 30px rgba(0,0,0,.2);
-    animation: fadeIn .5s ease;
+    background: #fff;
+    padding: 28px 24px 26px;
+    border-radius: 20px;
+    box-shadow: 0 20px 45px rgba(0,0,0,.25);
+    animation: fadeIn .45s ease;
 }
 
 @keyframes fadeIn {
-    from { opacity:0; transform:translateY(20px); }
-    to   { opacity:1; transform:none; }
+    from { opacity: 0; transform: translateY(18px); }
+    to   { opacity: 1; transform: none; }
 }
 
-h2 {
-    margin:0;
-    text-align:center;
-    color:#1e88e5;
+.card h2 {
+    text-align: center;
+    font-size: 17px;
+    font-weight: 600;
+    color: #1a1a1a;
+    margin: 0 0 4px;
 }
 
-.sub {
-    text-align:center;
-    font-size:13px;
-    color:#666;
-    margin-bottom:20px;
+.card .subtitle {
+    text-align: center;
+    font-size: 12.5px;
+    color: #8a93a3;
+    margin: 0 0 22px;
 }
 
-label {
-    font-size:13px;
-    color:#444;
+.field {
+    margin-bottom: 16px;
 }
 
-input, select {
-    width:100%;
-    padding:12px;
-    margin-top:6px;
-    margin-bottom:14px;
-    border-radius:8px;
-    border:1px solid #ddd;
-    font-size:15px;
+.field label {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #4a5568;
+    margin-bottom: 6px;
 }
 
-input:focus, select:focus {
-    outline:none;
-    border-color:#1e88e5;
+.input-group {
+    position: relative;
+    display: flex;
+    align-items: center;
+    border: 1.5px solid #E3E8EF;
+    border-radius: 12px;
+    background: var(--bg-soft);
+    transition: border-color .15s ease, box-shadow .15s ease;
 }
 
-button {
-    width:100%;
-    padding:14px;
-    border:none;
-    border-radius:10px;
-    font-size:16px;
-    font-weight:bold;
-    background:#1e88e5;
-    color:#fff;
+.input-group:focus-within {
+    border-color: var(--navy);
+    box-shadow: 0 0 0 3px rgba(12,68,124,.12);
+    background: #fff;
 }
 
-button:active {
-    transform:scale(.98);
+.input-group .icon {
+    width: 44px;
+    text-align: center;
+    color: #97A3B6;
+    font-size: 15px;
+    flex-shrink: 0;
+}
+
+.input-group input,
+.input-group select {
+    flex: 1;
+    border: none;
+    background: transparent;
+    outline: none;
+    padding: 13px 12px 13px 0;
+    font-size: 14.5px;
+    font-family: inherit;
+    color: #1f2937;
+    width: 100%;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.input-group select {
+    padding-right: 12px;
+    cursor: pointer;
+}
+
+.input-group .toggle-pass {
+    width: 44px;
+    text-align: center;
+    color: #97A3B6;
+    cursor: pointer;
+    font-size: 15px;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+}
+
+.select-wrap {
+    position: relative;
+}
+
+.select-wrap::after {
+    content: "\f078";
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #97A3B6;
+    font-size: 11px;
+    pointer-events: none;
+}
+
+.btn-absen {
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 12px;
+    font-size: 15.5px;
+    font-weight: 700;
+    letter-spacing: .3px;
+    background: linear-gradient(135deg, var(--navy), var(--navy-dark));
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 10px 20px rgba(12,68,124,.28);
+    transition: transform .1s ease, opacity .15s ease;
+    margin-top: 6px;
+}
+
+.btn-absen:active {
+    transform: scale(.98);
+}
+
+.btn-absen:disabled {
+    opacity: .65;
+    cursor: not-allowed;
+}
+
+.gps-note {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: #97A3B6;
+    justify-content: center;
+    margin-top: 14px;
+}
+
+.footer-note {
+    text-align: center;
+    color: rgba(255,255,255,.55);
+    font-size: 11.5px;
+    margin-top: 18px;
 }
 </style>
 </head>
 <body>
 
-<div class="card">
-    <h2>Absensi Mahasiswa</h2>
-    <div class="sub">SIAKAD</div>
+<div class="wrapper">
 
-<form method="post">
-    <input type="hidden" name="latitude" id="latitude">
-    <input type="hidden" name="longitude" id="longitude">
-    <input type="hidden" name="absen" value="1">
+    <div class="brand">
+        <div class="logo-circle">
+            <i class="fa-solid fa-hospital"></i>
+        </div>
+        <h1>RSUD Mohammad Noer</h1>
+        <p>Sistem Presensi Pegawai</p>
+    </div>
 
+    <div class="card">
+        <h2>Absen Kehadiran</h2>
+        <p class="subtitle">Isi data di bawah untuk mencatat kehadiran Anda</p>
 
-    <label>NIM</label>
-    <input type="text" name="nim" placeholder="Masukkan NIM" required>
+        <form method="post" id="formAbsen">
+            <input type="hidden" name="latitude" id="latitude">
+            <input type="hidden" name="longitude" id="longitude">
+            <input type="hidden" name="absen" value="1">
 
-    <label>Password</label>
-    <input type="password" name="password" placeholder="Password" required>
+            <div class="field">
+                <label>No. HP</label>
+                <div class="input-group">
+                    <span class="icon"><i class="fa-solid fa-phone"></i></span>
+                    <input type="text" name="hp" inputmode="numeric" placeholder="Contoh: 0812xxxxxxx" required>
+                </div>
+            </div>
 
-    <label>Jenis Absensi</label>
-    <select name="jenis_absen" required>
-        <option value="">Pilih Jenis Absensi</option>
-        <option value="H">Absen Datang</option>
-        <option value="Pulang">Absen Pulang</option>
-    </select>
+            <div class="field">
+                <label>Password</label>
+                <div class="input-group">
+                    <span class="icon"><i class="fa-solid fa-lock"></i></span>
+                    <input type="password" name="password" id="passwordInput" placeholder="Masukkan password" required>
+                    <button type="button" class="toggle-pass" id="togglePass">
+                        <i class="fa-solid fa-eye"></i>
+                    </button>
+                </div>
+            </div>
 
-    <label>Shift</label>
-    <select name="shift" required>
-        <?php echo $shiftOpt; ?>
-    </select>
+            <div class="field">
+                <label>Pilih Event</label>
+                <div class="input-group select-wrap">
+                    <span class="icon"><i class="fa-solid fa-calendar-days"></i></span>
+                    <select name="id_event" required>
+                        <?php echo $eventOpt; ?>
+                    </select>
+                </div>
+            </div>
 
-    <button type="submit" id="btnAbsen">ABSEN SEKARANG</button>
+            <button type="submit" class="btn-absen" id="btnAbsen">
+                <i class="fa-solid fa-location-dot"></i>
+                ABSEN SEKARANG
+            </button>
 
-</form>
+            <div class="gps-note">
+                <i class="fa-solid fa-satellite-dish"></i>
+                Pastikan GPS/Lokasi HP Anda aktif
+            </div>
+        </form>
+    </div>
 
+    <div class="footer-note">&copy; <?php echo date('Y'); ?> RSUD Mohammad Noer</div>
 </div>
 
 <script>
-const form = document.querySelector('form');
+// Toggle show/hide password
+document.getElementById('togglePass').addEventListener('click', function(){
+    var input = document.getElementById('passwordInput');
+    var icon  = this.querySelector('i');
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+    } else {
+        input.type = 'password';
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
+    }
+});
+
+const form = document.getElementById('formAbsen');
 const btn  = document.getElementById('btnAbsen');
 let isSubmitting = false;
 
@@ -345,14 +567,9 @@ form.addEventListener('submit', function (e) {
             timeout: 20000,
             maximumAge: 0
         }
-
-
     );
 });
 </script>
-
-
-
 
 <?php if ($error!='') { ?>
 <script>
@@ -365,7 +582,6 @@ Swal.fire({ icon:'error', text:'<?= addslashes($error) ?>' });
 Swal.fire({ icon:'success', text:'<?= addslashes($sukses) ?>' });
 </script>
 <?php } ?>
-
 
 </body>
 </html>
