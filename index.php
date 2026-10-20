@@ -9,7 +9,7 @@ date_default_timezone_set('Asia/Jakarta');
 // ===============================
 $CENTER_LAT = -7.157197932656336;
 $CENTER_LNG = 113.49101646077567;
-$MAX_RADIUS = 100; // meter
+$MAX_RADIUS = 500; // meter
 
 function hitungJarak($lat1, $lon1, $lat2, $lon2) {
     $earthRadius = 6371000;
